@@ -214,59 +214,69 @@ print(result2.get())
 ```
 در مثال بالا برنامه ما ۱۰ ثانیه متوقف میشه تا جواب ریزالت رو بگیره اما چون دو نتیجه ۱ و ۲ با سلری اجرا شدن پس از ۱۰ ثانیه جفت جواب هارو خواهیم گرفت نه بعد از ۲۰ ثانیه.
 
-
-
-محدود سازی یک تسک به مقدار در دقیقه
-```
-python -m celery -A tasks control rate_limit tasks.add 10/m
-```
-
+همینطور در مواقعی نیاز هست که ما وضعیت عملیات هامون رو زیر نظر داشته باشیم برای این منظور هم میتونیم از دستورات زیر استفاده کنیم:
 
 ```python
-add.apply_async((2, 2))
-add.apply_async((2, 2), queue='lopri', countdown=10)
-add(2,2)
-```
-
-
-```python
-T.delay(arg, kwarg=value)
-Star arguments shortcut to .apply_async. (.delay(*args, **kwargs) calls .apply_async(args, kwargs)).
-
-T.apply_async((arg,), {'kwarg': value})
-
-T.apply_async(countdown=10)
-executes in 10 seconds from now.
-
-T.apply_async(eta=now + timedelta(seconds=10))
-executes in 10 seconds from now, specified using eta
-
-T.apply_async(countdown=60, expires=120)
-executes in one minute from now, but expires after 2 minutes.
-
-T.apply_async(expires=now + timedelta(days=2))
-expires in 2 days, set using datetime.
-```
-
-برای استفاده از دستور های زیر باید بک اند تعریف شده باشه
-```python
-res.get(timeout=1)
-res.get(propagate=False)
-res.failed()
-res.successful()
+res.failed() # returns True if the task failed.
+res.successful() # returns True if the task succeeded.
 res.state  # PENDING -> STARTED -> SUCCESS or FAILURE
 # @task(track_started=True) is necessary to track the state of start.
-
-# PENDING -> STARTED -> RETRY -> STARTED -> RETRY -> STARTED -> SUCCESS
 ```
 
-signiture
+اما توجه داشته باشید که هم برای گرفتن مقدار خروجی یک تابع و هم برای گرفتن وضعیت یک تسک نیاز هست تا این موارد در یک دیتابیس مجزا ذخیره بشه، از اونجایی که ما برای بروکر از ردیس استفاده کردیم، برای کاهش دیپندنسی برناممون هم از بک اند ردیس استفاده می کنیم. برای اینکار در هنگام ساختن نمونه از سلری به اینگونه عمل می کنیم:
+
 ```python
-#full
-s1 = add.s(2, 2)
-res = s1.delay()
-res.get()
-# partially
-s2 = add.s(2) 
-res = s2.delay(8) # resolves the partial: add(8, 2)
+from celery import Celery
+app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379')
+```
+
+
+ همچنین برای محدود سازی یک تسک به مقدار در دقیقه از دستور زیر استفاده می کنیم
+```
+python -m celery -A tasks control rate_limit tasks.multiply 10/m
+```
+
+
+# استفاده از سلری در جنگو
+
+برای استفاده از سلری در جنگو لازم هست مانند همین مثال های قبلی در یک محل یک اینستنس از سلری بسازیم و آن را در جنگو قرار دهیم.
+
+برای این منظور ابتدا یک فایل به اسم دلخواه اما ترجیها سلری در کنار فایل ستینگ جنگو بسازید. سپس مقادیر زیر را وارد آن کنید
+
+```python
+import os
+
+from celery import Celery 
+ 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "django_celery.settings") # 1
+app = Celery("django_celery") # 2
+app.config_from_object("django.conf:settings", namespace="CELERY") # 3
+app.autodiscover_tasks() # 4
+
+```
+
+1. با اینکار محلی که باید تنظیمات ستینگ از آن خوانده شود در متغییر محلی سیستم عامل ذخیره میشود، در این مثال اسم اپلیکیشن ما جنگو سلری است
+2. اینجا یک اینستنس از سلری ساخته میشود که اسم اپلیکیشن ما را دریافت میکند
+3. تنظیمات سلری ما از داخل فایل ستینگ جنگو بارگذاری میشود، بخش نیم اسپیس نشون میده که دنبال چه ثابت هایی بگرده که در این مثال میشه ثابت هایی که با سلری شروع میشن
+4. این قسمت باعث میشه سلری بره و توی اپ جنگو ما بگرده و تمام تسک هارو اتوماتیک پیدا کنه
+
+پس از ساختن نمونه از سلری لازمه که این نمونه رو در اپلیکیشن جنگوی خودمون قرار بریم، برای این منظور به فایل اینیت در محل قرارگیری تنظیمات جنگو برید و عبارت زیر را وارد کنید:
+
+```python
+# __init__.py
+
+from .celery import app as celery_app
+
+__all__ = ("celery_app",)
+```
+
+با انجام این تنظیمات حالا در هرجایی از برنامه میتونید تسک بسازید و از آن استفاده کنید. اما نحوه ساختن تسک در جنگو کمی متفاوت است برای ساختن تسک اینگونه عمل می کنیم:
+
+```python
+from celery import shared_task
+
+@shared_task()
+def some_task():
+    pass
+
 ```
