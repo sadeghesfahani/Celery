@@ -96,16 +96,125 @@ https://www.youtube.com/watch?v=7rkeORD4jSw&t=435s
 
 سلری یک ابزار پایتونی مولتی سازه که از مسیج بروکر ها بهره میبره تا قابلیت های عالی ای رو برامون فراهم کنه.
 
-اجرا به صورت تکی تکی و غیر هم زمان
-```
-python -m celery -A tasks worker --pool=solo --loglevel=INFO 
-```
+برای استفاده از سلری نیاز هست از یک مسیج بروکر استفاده کنیم که ما در اینجا از ردیس استفاده می کنیم، چنان چه در مورد ردیس چیزی نمیدونید در اینجا میتونید در موردش بخونید:
+https://github.com/sadeghesfahani/Redis
 
-اجرا به صورت هم زمان در ویندوز
+پس از نصب و راه اندازی ردیس حالا نوبت به نصب و راه اندازی سلری است برای این کار از دستور 
 
 ```
-python -m celery -A tasks worker --pool=eventlet --loglevel=INFO
+pip install celery
 ```
+
+استفاده می کنیم. پس از نصب آن آماده استفاده از آن هستیم. ابتدا لازم است یک اینستنس از سلری بسازیم:
+
+```python
+# tasks.py
+from celery import Celery
+
+app = Celery('tasks', broker='redis://localhost:6379/0')
+
+```
+<p style="direction:rtl">
+حالا که اینستنس ما آماده استفاده است، از یک متد دکوریتور آن به نام task استفاده می کنیم
+</p>
+
+```python
+# tasks.py
+
+from celery import Celery
+
+app = Celery('tasks', broker='redis://localhost:6379/0')
+
+@app.task
+def out_function(args):
+    pass
+
+```
+
+حالا که اولیت تسک ما ساخته شد، برای اجرا لازمه که کارگر برای انجام این کار بسازیم. برای ساخت کارگر به دایرکتوری فایل ایجاد شده رفته و دستور زیر را اجرا می کنیم.
+
+```
+python -m celery -A tasks worker --loglevel=INFO 
+```
+
+سلری از نسخه ۴ به بعد دیگر از ویندوز پشتیبانی نمیکند و برای استفاده آن در ویندوز باید استخری که تسک ها در آن به اشتراک گذاشته میشن رو به چیزی غیر از مولتی پراسس تغییر دهید که عموما به طور مولتی ترد کار می کنند.
+
+```
+python -m celery -A tasks worker --pool=solo --loglevel=INFO    # this uses single proccess
+python -m celery -A tasks worker --pool=eventlet --loglevel=INFO  # this uses multithread
+```
+
+همچنین اگر نیاز به دیباگ داشتید میتونید با تغییر لاگ لول به دیباگ اطلاعات بیشتری از اجرا کارگرتون رو بگیرید
+
+توجه داشته باشید که برای استفاده در ویندوز باید 
+
+```
+pip install eventlet
+```
+رو هم نصب داشته باشید.
+
+حالا که کارگر ما حاضره، میتونیم از تسک هامون به صورت ایسینک استفاده کنیم. برای اینکار میتونیم از متدی به نام دیلی یا اپلای ایسینک استفاده کنیم، بریم چند مثال از اون رو ببینیم:
+
+```python
+# tasks.py
+
+from celery import Celery
+import time
+app = Celery('tasks', broker='redis://localhost:6379/0')
+
+@app.task
+def print_this_after_a_second(message):
+    time.sleep(1)
+    print(message)
+
+
+print_this_after_a_second.delay('hello world')
+print_this_after_a_second.apply_async(('hello world',))
+```
+
+تفاوتی که در این دو وجود دارد، در اپلی ایسینک ما میتونیم خصوصیات بیشتری برای اجرا بهش رو بدیم به عنوان مثال به این موارد توجه کنید:
+
+```python
+# tasks.py
+
+from celery import Celery
+import time
+app = Celery('tasks', broker='redis://localhost:6379/0')
+
+@app.task
+def print_this_after_a_second(message):
+    time.sleep(1)
+    print(message)
+
+
+print_this_after_a_second.apply_async(('hello world',), countdown=10) # executes in 10 seconds from now.
+print_this_after_a_second.apply_async(('hello world',), countdown = 10, expires=120) # executes in one minute from now, but expires after 2 minutes.
+```
+
+در این مثال بالا ما نیازی نداشتیم که خروجی خاصی از فانکشنمون دریافت کنیم، اما در مواردی نیاز هست که این کارو انجام بدیم. البته با انجام اینکار مجدد ورک فلو برنامه در اون لاین متوقف میشه ولی تمام عملیات تا قبل از اون خط به طور موازی انجام میشه پس میتونه بازی رو بسیار به نفع ما عوض کنه.
+
+```python
+# tasks.py
+
+from celery import Celery
+import time
+app = Celery('tasks', broker='redis://localhost:6379/0')
+
+@app.task
+def multiply(var1,var2):
+    time.sleep(10)
+    return var1 * var2
+
+
+result = multiply.apply_async((2,2))
+result2 = multiply.delay(3,3)
+
+print(result.get())
+print(result2.get())
+```
+در مثال بالا برنامه ما ۱۰ ثانیه متوقف میشه تا جواب ریزالت رو بگیره اما چون دو نتیجه ۱ و ۲ با سلری اجرا شدن پس از ۱۰ ثانیه جفت جواب هارو خواهیم گرفت نه بعد از ۲۰ ثانیه.
+
+
 
 محدود سازی یک تسک به مقدار در دقیقه
 ```
